@@ -19,6 +19,7 @@ import com.google.common.base.VerifyException;
 import com.google.common.collect.Comparators;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableTable;
 import com.google.common.collect.Sets;
@@ -53,6 +54,7 @@ import io.trino.plugin.deltalake.statistics.ExtendedStatistics;
 import io.trino.plugin.deltalake.transactionlog.AddFileEntry;
 import io.trino.plugin.deltalake.transactionlog.CdcEntry;
 import io.trino.plugin.deltalake.transactionlog.CommitInfoEntry;
+import io.trino.plugin.deltalake.transactionlog.DeletionVectorEntry;
 import io.trino.plugin.deltalake.transactionlog.DeltaLakeComputedStatistics;
 import io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport;
 import io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.ColumnMappingMode;
@@ -250,6 +252,7 @@ import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.ge
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.getIsolationLevel;
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.getMaxColumnId;
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.isAppendOnly;
+import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.isDeletionVectorEnabled;
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.serializeColumnType;
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.serializeSchemaAsJson;
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.serializeStatsAsJson;
@@ -1876,7 +1879,7 @@ public class DeltaLakeMetadata
                             Optional.of(serializeStatsAsJson(statisticsWithExactNames)),
                             Optional.empty(),
                             ImmutableMap.of(),
-                            Optional.empty()));
+                            info.deletionVector()));
         }
     }
 
@@ -2231,7 +2234,31 @@ public class DeltaLakeMetadata
 
         DeltaLakeInsertTableHandle insertHandle = createInsertHandle(retryMode, handle, inputColumns);
 
-        return new DeltaLakeMergeTableHandle(handle, insertHandle);
+        Map<String, Collection<DeletionVectorEntry>> deletionVectors = loadDeletionVectors(session, handle);
+        return new DeltaLakeMergeTableHandle(handle, insertHandle, deletionVectors);
+    }
+
+    private Map<String, Collection<DeletionVectorEntry>> loadDeletionVectors(ConnectorSession session, DeltaLakeTableHandle handle)
+    {
+        if (!isDeletionVectorEnabled(handle.getMetadataEntry(), handle.getProtocolEntry())) {
+            return ImmutableMap.of();
+        }
+
+        ImmutableMultimap.Builder<String, DeletionVectorEntry> deletionVectors = ImmutableMultimap.builder();
+        try (Stream<AddFileEntry> activeFiles = transactionLogAccess.getActiveFiles(
+                session,
+                getSnapshot(session, handle),
+                handle.getMetadataEntry(),
+                handle.getProtocolEntry(),
+                handle.getEnforcedPartitionConstraint(),
+                handle.getProjectedColumns().orElse(ImmutableSet.of()))) {
+            Iterator<AddFileEntry> addFileEntryIterator = activeFiles.iterator();
+            while (addFileEntryIterator.hasNext()) {
+                AddFileEntry addFileEntry = addFileEntryIterator.next();
+                addFileEntry.getDeletionVector().ifPresent(deletionVector -> deletionVectors.put(addFileEntry.getPath(), deletionVector));
+            }
+        }
+        return deletionVectors.build().asMap();
     }
 
     @Override
