@@ -6,6 +6,6 @@ jobs:
       - image: cimg/openjdk:17.0
     steps:
       - checkout
-      - run: mvn clean install -DskipTests -Perrorprone-compiler -e -pl :trino-hive-jdbc -am
-      - run: mvn test
-      - run: mvn package -e -pl :trino-hive-jdbc -am
+      - run: ./mvnw clean install -DskipTests -Perrorprone-compiler -e -pl :trino-hive-jdbc -am
+      - run: ./mvnw test
+      - run: ./mvnw package -e -pl :trino-hive-jdbc -am
