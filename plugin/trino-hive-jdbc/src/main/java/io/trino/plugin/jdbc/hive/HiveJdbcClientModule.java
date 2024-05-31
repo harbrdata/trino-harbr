@@ -24,6 +24,7 @@ import io.trino.plugin.jdbc.DriverConnectionFactory;
 import io.trino.plugin.jdbc.ForBaseJdbc;
 import io.trino.plugin.jdbc.JdbcClient;
 import io.trino.plugin.jdbc.credential.CredentialProvider;
+import org.apache.hive.jdbc.HiveDriver;
 
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -45,6 +46,6 @@ public class HiveJdbcClientModule
             throws SQLException
     {
         Properties connectionProperties = new Properties();
-        return new DriverConnectionFactory(DriverManager.getDriver(config.getConnectionUrl()), config.getConnectionUrl(), connectionProperties, credentialProvider);
+        return new DriverConnectionFactory(new HiveDriver(), config.getConnectionUrl(), connectionProperties, credentialProvider);
     }
 }
